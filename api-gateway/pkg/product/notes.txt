@@ -1,0 +1,168 @@
+These files are part of the API gateway implementation for the "product" microservice. The API gateway acts as an intermediary between clients and backend microservices, providing a unified entry point for accessing multiple services. Let's break down each file:
+
+**File: routes.go**
+```go
+package routes
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/hikvineh/api-gateway/pkg/product/pb"
+	"github.com/gin-gonic/gin"
+)
+
+type CreateProductRequestBody struct {
+	Name  string `json:"name"`
+	Stock int64  `json:"stock"`
+	Price int64  `json:"price"`
+}
+
+func CreateProduct(ctx *gin.Context, c pb.ProductServiceClient) {
+	body := CreateProductRequestBody{}
+
+	if err := ctx.BindJSON(&body); err != nil {
+		ctx.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+
+	res, err := c.CreateProduct(context.Background(), &pb.CreateProductRequest{
+		Name:  body.Name,
+		Stock: body.Stock,
+		Price: body.Price,
+	})
+
+	if err != nil {
+		ctx.AbortWithError(http.StatusBadGateway, err)
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, &res)
+}
+```
+
+Explanation:
+- This file defines route handlers for the "/product" path, specifically for creating products.
+- The `CreateProduct` function is a route handler that handles HTTP POST requests to create a product.
+- It receives a Gin context (`ctx`) and a `ProductServiceClient` (`c`) as arguments. The `ProductServiceClient` is a gRPC client used to interact with the product microservice.
+- The function starts by binding the JSON data from the request body to the `CreateProductRequestBody` struct.
+- If there's an error during JSON binding, it aborts the request with a 400 Bad Request status.
+- It then calls the `CreateProduct` method of the `ProductServiceClient` (`c`) to create the product in the product microservice.
+- If there's an error during the gRPC call or the response status is not successful, it aborts the request with a 502 Bad Gateway status.
+- Otherwise, it returns the product creation response as JSON with a 201 Created status.
+
+**File: routes.go**
+```go
+package routes
+
+import (
+	"context"
+	"net/http"
+	"strconv"
+
+	"github.com/hikvineh/api-gateway/pkg/product/pb"
+	"github.com/gin-gonic/gin"
+)
+
+func FindOne(ctx *gin.Context, c pb.ProductServiceClient) {
+	id, _ := strconv.ParseInt(ctx.Param("id"), 10, 32)
+
+	res, err := c.FindOne(context.Background(), &pb.FindOneRequest{
+		Id: int64(id),
+	})
+
+	if err != nil {
+		ctx.AbortWithError(http.StatusBadGateway, err)
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, &res)
+}
+```
+
+Explanation:
+- This file defines another route handler for the "/product" path, specifically for finding a single product by its ID.
+- The `FindOne` function is a route handler that handles HTTP GET requests to find a product.
+- It receives a Gin context (`ctx`) and a `ProductServiceClient` (`c`) as arguments. The `ProductServiceClient` is a gRPC client used to interact with the product microservice.
+- It retrieves the product ID from the URL parameter and converts it to an integer using `strconv.ParseInt`.
+- It then calls the `FindOne` method of the `ProductServiceClient` (`c`) to find the product by its ID in the product microservice.
+- If there's an error during the gRPC call or the response status is not successful, it aborts the request with a 502 Bad Gateway status.
+- Otherwise, it returns the product details as JSON with a 200 OK status.
+
+**File: product.go**
+```go
+package product
+
+import (
+	"fmt"
+
+	"github.com/hikvineh/api-gateway/pkg/config"
+	"github.com/hikvineh/api-gateway/pkg/product/pb"
+	"google.golang.org/grpc"
+)
+
+type ServiceClient struct {
+	Client pb.ProductServiceClient
+}
+
+func InitServiceClient(c *config.Config) pb.ProductServiceClient {
+	// using WithInsecure() because no SSL running
+	cc, err := grpc.Dial(c.ProductSvcUrl, grpc.WithInsecure())
+
+	if err != nil {
+		fmt.Println("Could not connect:", err)
+	}
+
+	return pb.NewProductServiceClient(cc)
+}
+```
+
+Explanation:
+- This file defines a service client for the product microservice. It is responsible for interacting with the product microservice using gRPC.
+- The `ServiceClient` struct has a single field named `Client`, which is of type `pb.ProductServiceClient`. `pb.ProductServiceClient` is the gRPC client interface for the product microservice, generated from the Protocol Buffers (protobuf) service definition.
+- The `InitServiceClient` function is used to initialize the gRPC client for the product microservice.
+- It takes a `Config` struct (`c`) as an argument, which contains the configuration settings, including the URL of the product microservice (`c.ProductSvcUrl`).
+- The function creates a gRPC client connection (`cc`) to the product microservice using the URL provided in the configuration.
+- If there's an error while connecting to the product microservice, it prints an error message to the console.
+- If the connection is successful, it returns a new instance of `pb.ProductServiceClient`, which will be used to make gRPC calls to the product microservice.
+
+**File: product.go**
+```go
+package product
+
+import (
+	"github.com/hikvineh/api-gateway/pkg/auth"
+	"github.com/hikvineh/api-gateway/pkg/config"
+	"github.com/hikvineh/api-gateway/pkg/product/routes"
+	"github.com/gin-gonic/gin"
+)
+
+func RegisterRoutes(r *gin.Engine, c *config.Config, authSvc *auth.ServiceClient) {
+	a := auth.InitAuthMiddleware(authSvc)
+
+	svc := &ServiceClient{
+		Client: InitServiceClient(c),
+	}
+
+	routes := r.Group("/product")
+	routes.Use(a.AuthRequired)
+	routes.POST("/", svc.CreateProduct)
+	routes.GET("/:id", svc.FindOne)
+}
+
+func (svc *ServiceClient) FindOne(ctx *gin.Context) {
+	routes.FindOne(ctx, svc.Client)
+}
+
+func (svc *ServiceClient) CreateProduct(ctx *gin.Context) {
+	routes.CreateProduct(ctx, svc.Client)
+}
+```
+
+Explanation:
+- This file is responsible for registering routes related to the product microservice in the Gin router (`gin.Engine`).
+- The `RegisterRoutes` function takes three arguments: the Gin router `r`, the configuration settings `c`, and the authentication service client `authSvc` (`*auth.ServiceClient`).
+- It starts by initializing the authentication middleware by calling `auth.InitAuthMiddleware(authSvc)`. The authentication middleware will be used to protect routes that require authentication.
+- Next, it initializes the service client for the product microservice by creating a new `ServiceClient` instance (`svc`) using the `InitServiceClient(c)` function.
+- It creates a new route group named "/product" using `r.Group("/product")`. All routes related to the product microservice will be registered under this group.
+- It adds the authentication middleware to the route

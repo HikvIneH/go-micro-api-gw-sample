@@ -1,0 +1,34 @@
+# Stage 1: Build the application
+FROM golang AS builder
+
+WORKDIR /app
+
+# Copy your Go application code to the container
+COPY . /app
+
+# Install protoc and grpc-tools
+RUN apt-get update && \
+    apt-get install -y protobuf-compiler 
+
+
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Generate Go gRPC code from proto files
+RUN make proto
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o auth-svc-server ./cmd/main.go
+
+# Stage 2: Create a runtime image with Alpine Linux
+FROM alpine
+
+# Install the dynamic linker and C library
+RUN apk --no-cache add libc6-compat
+
+COPY --from=builder /app/auth-svc-server /auth-svc-server
+COPY --from=builder /app/pkg/config/envs/dev.env /pkg/config/envs/dev.env
+
+EXPOSE 8081
+
+# Command to run the application
+CMD ["./auth-svc-server"]

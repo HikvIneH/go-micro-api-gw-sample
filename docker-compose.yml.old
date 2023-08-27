@@ -1,0 +1,79 @@
+version: '3'
+services:
+  api-gateway:
+    build:
+      context: ./api-gateway
+    ports:
+      - "3001:3000"
+    depends_on:
+      - auth-svc
+      - order-svc
+      - product-svc
+
+  postgres_auth:
+    build:
+      context: ./storage
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_DB: user
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: auth_password@0.0.0.0
+    ports:
+      - "5433:5432"  # Use a different port for each PostgreSQL instance
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+
+  postgres_order:
+    build:
+      context: ./storage
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_DB: order
+      POSTGRES_USER: order_user
+      POSTGRES_PASSWORD: order_password@0.0.0.0
+    ports:
+      - "5434:5432"  # Use a different port for each PostgreSQL instance
+    volumes:
+      - postgres_order_data:/var/lib/postgresql/data
+
+  postgres_product:
+    build:
+      context: ./storage
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_DB: product
+      POSTGRES_USER: product_user
+      POSTGRES_PASSWORD: product_password@0.0.0.0
+    ports:
+      - "5435:5432"  # Use a different port for each PostgreSQL instance
+    volumes:
+      - postgres_product_data:/var/lib/postgresql/data
+
+  auth-svc:
+    build:
+      context: ./auth-svc
+    ports:
+      - "8081:50051"
+    depends_on:
+      - postgres_auth
+
+  order-svc:
+    build:
+      context: ./order-svc
+    ports:
+      - "8082:50053"
+    depends_on:
+      - postgres_order
+
+  product-svc:
+    build:
+      context: ./product-svc
+    ports:
+      - "8083:50052"
+    depends_on:
+      - postgres_product
+
+volumes:
+  postgres_auth_data:
+  postgres_order_data:
+  postgres_product_data:
