@@ -1,0 +1,4 @@
+
+# compiled service binaries
+order-svc/order-svc--server
+*-svc/*-svc--server
